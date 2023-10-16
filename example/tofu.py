@@ -21,16 +21,14 @@ from omni.isaac.core.utils.stage import open_stage
 from pxr import Gf, Sdf, UsdGeom, Usd, UsdLux, PhysxSchema
 
 # from pxr import UsdGeom, Sdf, Gf, Vt, PhysicsSchemaTools    
-from example.utils.point_maker import PointMarker
-
+from dom_test.example.utils.point_maker import PointMarker
+from dom_test.example.utils.particle_util import ParticleUtil
 class Test():
     def __init__(self):
         self._device = "cuda:0"        
         self.gripper_close = False
         self._path = os.getcwd()
         self.obs = None
-        # self.scene = SceneCustom()
- 
         
     def init_simulation(self):
         print("sibal")
@@ -43,8 +41,9 @@ class Test():
 
     def main(self):        
         self._path = os.getcwd()
-        self.asset_path = self._path + "/example/assets/" 
-        object_usd_path = self.asset_path + "tofu_scene.usd"
+        self.asset_path = self._path + "/dom_test/example/assets/" 
+        # object_usd_path = self.asset_path + "tofu_scene.usd"
+        object_usd_path = self.asset_path + "tofu_gripper.usd"
         open_stage(usd_path=object_usd_path)
         
         world = World(stage_units_in_meters=1)
@@ -53,51 +52,49 @@ class Test():
         self.stage = world.stage
         self.init_simulation()
 
-        self._pointer = PointMarker("/Visuals/ee_goal", 1, radius=0.1)
+        # self._pointer = PointMarker("/Visuals/ee_goal", 1, radius=0.1)
+        self.robotiq = ArticulationView(
+            prim_paths_expr="/tofu/gripper/robotiq", name="robotiq")
+        world.scene.add(self.robotiq)
+        self.particle = ParticleUtil(self.stage,"/tofu/liquid")
         
-        self.mesh_prim = self.stage.GetPrimAtPath("/tofu/liquid")
-        self.sampling_api = PhysxSchema.PhysxParticleSamplingAPI(self.mesh_prim)
-        self.pointTargets = self.sampling_api.GetParticlesRel().GetTargets()
-        particlePath = self.pointTargets[0]
-        pointsPrim = self.stage.GetPrimAtPath(particlePath)
-        points = UsdGeom.Points(pointsPrim)
-        
-        world.reset()
-        # points = UsdGeom.Points(pointsPrim)
-        for _ in range(50):
-            world.step(render=True)
-            
-        # self.mesh_prim = self.stage.GetPrimAtPath("/World/Cylinder")
+        # self.mesh_prim = self.stage.GetPrimAtPath("/tofu/liquid")
         # self.sampling_api = PhysxSchema.PhysxParticleSamplingAPI(self.mesh_prim)
         # self.pointTargets = self.sampling_api.GetParticlesRel().GetTargets()
         # particlePath = self.pointTargets[0]
         # pointsPrim = self.stage.GetPrimAtPath(particlePath)
         # points = UsdGeom.Points(pointsPrim)
-
+        
+        world.reset()
+        # points = UsdGeom.Points(pointsPrim)
+        for _ in range(50):
+            world.step(render=True)
+        i=0
         while simulation_app.is_running():
             world.step(render=True)
             if world.is_playing():
                 if world.current_time_step_index == 0:
                     world.reset()
-                    
 
-            positions = points.GetPointsAttr().Get()
-            
-            # points = UsdGeom.PointInstancer(pointsPrim)
-            # positions = points.GetPositionsAttr().Get()
-            print("liquid", np.array([positions[0]]))
-            self._pointer.set_world_poses(positions=np.array([positions[0]]))
-
+            # positions = points.GetPointsAttr().Get()
+            i+=1
+            # self._pointer.set_world_poses(positions=np.array([positions[0]]))
+            if i == 10:
+                # print("Number of total particles:", self.particle.get_number_of_points())
+                # print("Number of Outside particles:", self.particle.get_number_of_outside_points())
+                print("Outside particles/Total particles:", self.particle.get_number_of_outside_points(),"/",self.particle.get_number_of_points())
+                i = 0
             # # # ### PD position control##
-            # djv = self.robotiq.get_joint_positions(clone=False)
-            # # djv*= 0
-            # djv[:, 6] += 0.1
-            # djv[:, 7] = djv[:, 6]
-            # djv[:, 9] = djv[:, 6]
-            # djv[:, 8] = -djv[:, 6]
-            # djv[:, 10] = -djv[:, 6]
-            # djv[:, 11] = -djv[:, 6]
-            # self.robotiq.set_joint_position_targets(djv)  # pd controls
+            djv = self.robotiq.get_joint_positions(clone=False)
+            # djv*= 0
+            djv[:, :6] = 0
+            djv[:, 6] += 0.01
+            djv[:, 7] = djv[:, 6]
+            djv[:, 9] = djv[:, 6]
+            djv[:, 8] = -djv[:, 6]
+            djv[:, 10] = -djv[:, 6]
+            djv[:, 11] = -djv[:, 6]
+            self.robotiq.set_joint_position_targets(djv)  # pd controls
  
         
 if __name__ == "__main__":
