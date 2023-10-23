@@ -83,7 +83,7 @@ class Test():
             djv = self.robotiq.get_joint_positions(clone=False)
             # djv*= 0
             djv[:, :6] = 0
-            djv[:, 6] += 0.01
+            djv[:, 6] = 0.5
             djv[:, 7] = djv[:, 6]
             djv[:, 9] = djv[:, 6]
             djv[:, 8] = -djv[:, 6]

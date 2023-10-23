@@ -7,20 +7,59 @@ import trimesh as t
 import open3d as o3d
 import torch
 from pxr import UsdGeom, Usd, Gf, PhysicsSchemaTools, Sdf, PhysxSchema
-
+from omni.isaac.core.utils.stage import get_current_stage
+from omni.isaac.core.utils.prims import get_prim_at_path
+from omni.isaac.core.utils.transformations import get_relative_transform
 
 class PointCloudUtil():
-    def __init__(self):
+    def __init__(
+        self,
+        mesh_path):
+        self.mesh_path = mesh_path
+        self.initalize_points(mesh_path)
         return
     
-    def initalize_particles(self, mesh_path):
-        mesh_prim = self._stage.GetPrimAtPath(mesh_path)
-        samplingApi = PhysxSchema.PhysxParticleSamplingAPI(mesh_prim)
-        pointTargets = samplingApi.GetParticlesRel().GetTargets()
+    def initalize_points(self, mesh_path):
+        """
+        Get Deformable Mesh's points.
+        """
+        mesh_prim = get_prim_at_path(mesh_path)
+        self.deformable = PhysxSchema.PhysxDeformableBodyAPI(mesh_prim)
 
-        particlePath = pointTargets[0]
-        pointsPrim = self._stage.GetPrimAtPath(particlePath)
-        self.points = UsdGeom.Points(pointsPrim)
+    def get_number_of_points(self):
+        positions = self.get_position_array()
+        return len(positions)
+    
+    def get_position_array(self):
+        local_collision_point = (np.array(self.deformable.GetCollisionPointsAttr().Get())) 
+        vertices = np.array(local_collision_point)
+        vertices_tf_row_major = np.pad(vertices, ((0, 0), (0, 1)), constant_values=1.0)
+        relative_tf_column_major = get_relative_transform(get_prim_at_path(self.mesh_path), get_prim_at_path("/World"))
+        relative_tf_row_major = np.transpose(relative_tf_column_major)
+        points_in_relative_coord = vertices_tf_row_major @ relative_tf_row_major
+        pcd = points_in_relative_coord[:, :-1]
+        # pcds.append(pcd)
+
+        return pcd
+
+    def get_number_of_inside_points(self):
+        trigger = UsdGeom.Mesh(get_current_stage().GetPrimAtPath("/World/trigger"))
+        trig_vert = np.array(trigger.GetPointsAttr().Get())
+        ###
+        vertices = trig_vert
+        vertices_tf_row_major = np.pad(vertices, ((0, 0), (0, 1)), constant_values=1.0)
+        relative_tf_column_major = get_relative_transform(get_prim_at_path("/World/trigger"), 
+                                                        get_prim_at_path("/World"))
+        relative_tf_row_major = np.transpose(relative_tf_column_major)
+
+        points_in_relative_coord = vertices_tf_row_major @ relative_tf_row_major
+        points_in_meters = points_in_relative_coord[:, :-1]
+        ###
+        trig_bbox = t.PointCloud(points_in_meters).bounding_box
+        # contact_check = np.array([item for item in trig_bbox.contains(self.get_position_array())])
+        contact_check = trig_bbox.contains(self.get_position_array())
+        
+        return len(contact_check[contact_check == True])
 
     def get_chamfer_distance(self, raw_pcds, target_pcds):
         """
