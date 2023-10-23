@@ -10,7 +10,6 @@ from omni.isaac.core import World
  
 from omni.isaac.core.prims import RigidPrimView 
 from omni.isaac.core.articulations import ArticulationView
-from omni.physx.scripts.physicsUtils import *
 from omni.isaac.core.physics_context.physics_context import PhysicsContext
 import omni.usd
  
@@ -97,8 +96,8 @@ class Test():
             # # # ### PD position control##
             djv = self.robotiq.get_joint_positions(clone=False)
             # djv*= 0
-            djv[:, 2:6] = 0
-            djv[:, 0:2] += 0.01
+            djv[:, :6] = 0
+            # djv[:, 0:2] += 0.01
             
             djv[:, 6] += 0.01
             djv[:, 7] = djv[:, 6]
