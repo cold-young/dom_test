@@ -2,21 +2,20 @@
 # This module is for collecting data for training srl models
 
 # Chanyoung Ahn
-# 23.10.30
-# Can extract normal vector 
-# Dont use headless (when we use headless, we can't get deformed object's pcd)
+# 23.10.27
+
 import argparse
 import os
 
 from omni.isaac.kit import SimulationApp
 
 parser = argparse.ArgumentParser("Welcome to Orbit: Omniverse Robotics Environments!")
-parser.add_argument("--headless", action="store_true", default=False, help="Force display off at all times.")
+parser.add_argument("--headless", action="store_true", default=True, help="Force display off at all times.")
 parser.add_argument("--data_num", type=int, default=1000, help="Number of data to collect")
 parser.add_argument("--norm_pcd", action="store_true", default=False, help="Normalize pcd")
-parser.add_argument("--object", type=str, default="strawberry", help="Object types: tofu, lemon, strawberry, peach")
+parser.add_argument("--object", type=str, default="tofu", help="Object types: tofu, lemon, strawberry, peach")
 parser.add_argument("--gravity", action="store_true", default=False, help="Option of gravity on/off")
-# parser.add_argument("--extract_indices", action="store_true", default=True, help="Save init indices of the object (Object_indices.npy)")
+parser.add_argument("--extract_indices", action="store_true", default=True, help="Save init indices of the object (Object_indices.npy)")
 parser.add_argument("--vis_pcd", action="store_true", default=False, help="Visualize pcds of objects (Object.npy)")
 
 args_cli = parser.parse_args()
@@ -51,11 +50,9 @@ from omni.usd.commands import  DeletePrimsCommand
 import omni.usd
 from pxr import UsdGeom, PhysxSchema, Gf, Usd, UsdShade
 import open3d as o3d
-import trimesh as tr
 import numpy as np
 import torch 
 import random
-from tqdm import tqdm
 
 class DataCollection():
     def __init__(self):
@@ -161,45 +158,9 @@ class DataCollection():
         points.CreateWidthsAttr().Set(sizes)
         points.CreateDisplayColorPrimvar("constant").Set([color])
         return points
-    
-    def _convert_poly_to_tri(self,
-        vertices: np.ndarray, faces_indices: np.ndarray, face_vertex_counts: np.ndarray
-    ) -> np.ndarray:
-        """Converts the input mesh into a triangle mesh.
-
-        Args:
-            vertices: A 2D array of shape (V, 3) containing the vertices that define the mesh.
-            faces_indices: A 1D array representing the indices of the vertices for the corresponding faces.
-            face_vertex_counts: A 1D array containing the number of vertices defined for each face.
-
-        Returns:
-            An array containing the faces of the triangle mesh.
-        """
-        mask = face_vertex_counts > 3
-        faces = np.empty(
-            (face_vertex_counts.shape[0] + np.sum(face_vertex_counts[np.nonzero(mask)]) - 3 * np.sum(mask), 3),
-            dtype=np.int64,
-        )
-        faces_idx = 0
-        poly_faces_idx = 0
-
-        for vertex_count in face_vertex_counts:
-            if vertex_count == 3:
-                faces[faces_idx, :] = faces_indices[poly_faces_idx : poly_faces_idx + 3]
-            else:  # if face is not a triangle, then break it up into multiple triangles
-                faces[faces_idx : faces_idx + vertex_count - 2, 0] = faces_indices[poly_faces_idx]
-                # sub-divide the polygon into several triangles by creating lines from the first vertex
-                for i in range(poly_faces_idx, poly_faces_idx + vertex_count - 2):
-                    faces[faces_idx + i - poly_faces_idx, 1:] = faces_indices[i + 1 : i + 3]
-            faces_idx += vertex_count - 2
-            poly_faces_idx += vertex_count
-
-        return faces
-
 
     def get_deform_point(self, normalize: bool = False):
-        # local_collision_point = np.array(self.deformable_body.GetCollisionPointsAttr().Get())
-        local_collision_point = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("points").Get())   
+        local_collision_point = np.array(self.deformable_body.GetCollisionPointsAttr().Get())
         vertices = np.array(local_collision_point)
         vertices_tf_row_major = np.pad(vertices, ((0, 0), (0, 1)), constant_values=1.0)
         relative_tf_column_major = get_relative_transform(get_prim_at_path("/World/Object/mesh"), 
@@ -208,22 +169,10 @@ class DataCollection():
         points_in_relative_coord = vertices_tf_row_major @ relative_tf_row_major
         pcd = points_in_relative_coord[:, :-1]
         
-        face_idx = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexIndices").Get())
-        face_vertex_counts = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexCounts").Get())
-        
-        # convert prim mesh to a triangle mesh
-        tris = self._convert_poly_to_tri(pcd, face_idx, face_vertex_counts)
-        # get normals
-        v1 = pcd[tris[:, 0]] - pcd[tris[:, 1]]
-        v2 = pcd[tris[:, 0]] - pcd[tris[:, 2]]
-        surface_normals = np.cross(v1, v2)
-        areas = 0.5 * np.linalg.norm(np.cross(v1, v2), axis=-1)
-        surface_normals /= 2 * areas[:, None]
-        
-        a = tr.Trimesh(vertices=pcd, faces=tris, face_normals=surface_normals)
-        
-        pcd = a.vertices
-        normal = a.vertex_normals
+        # check using open3d
+        # _pcd = o3d.geometry.PointCloud()
+        # _pcd.points = o3d.utility.Vector3dVector(pcd)
+        # o3d.visualization.draw_geometries([_pcd])
         
         if normalize:
             mins = np.min(pcd, axis=0)
@@ -231,10 +180,10 @@ class DataCollection():
             scale_factor = np.max(maxs - mins)/2
             mean = np.mean(pcd, axis=0)
             norm_pcd = (pcd - mean)/scale_factor
-            return norm_pcd, normal
+            return norm_pcd
         else:
             """only raw deform point cloud"""
-            return pcd, normal
+            return pcd
     
     def main(self):
         print(f"Data Collection num : {args_cli.data_num}, object : {args_cli.object}, gravity : {args_cli.gravity}")
@@ -253,26 +202,30 @@ class DataCollection():
             os.makedirs(os.path.join(self.current_directory, 'data', f'{args_cli.object}'))
         
         world.scene.add(self.gripper)
-
+        
+        if args_cli.extract_indices:
+            indices= np.array(self.deformable_body.GetCollisionIndicesAttr().Get())
+            np.save(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_indices.npy'), indices)
+            print(f"save {args_cli.object} indices in './data/{args_cli.object}_indices.npy'")
         if args_cli.vis_pcd:
             pcd_num = len(np.array(self.deformable_body.GetCollisionPointsAttr().Get()))
             points = self.create_pcd(pcd_num)
             
         world.reset()
+        collected_data = 1
         if args_cli.norm_pcd:
-            pcd, normal = self.get_deform_point(normalize=True)
+            pcd = self.get_deform_point(normalize=True)
         else:
-            pcd, normal = self.get_deform_point(normalize=False)
+            pcd = self.get_deform_point(normalize=False)
 
+        dataset = np.array(np.array([pcd]))
         i = 0
-        collected_data = 0
-        
-        dataset = np.empty((args_cli.data_num, len(pcd), 6))
         while args_cli.data_num > collected_data:
             if world.is_playing():
                 if world.current_time_step_index == 0:
                     world.reset()
             i += 1
+            collected_data += 1
             print(f"Data collection : {collected_data} / {args_cli.data_num}")
             if i == 130:
                 world.scene.clear()
@@ -284,20 +237,10 @@ class DataCollection():
                 world.reset()    
                 i = 0
             
-            if i == 100:
-                # check using open3d
-                face_idx = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexIndices").Get())
-                face_vertex_counts = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexCounts").Get())
-                
-                # convert prim mesh to a triangle mesh
-                tris = self._convert_poly_to_tri(pcd, face_idx, face_vertex_counts)
-                
-                a = tr.Trimesh(vertices=pcd, faces=tris, face_normals=normal)
+            if i == 90:
                 _pcd = o3d.geometry.PointCloud()
-                _pcd.points = o3d.utility.Vector3dVector(a.vertices)
-                _pcd.normals = o3d.utility.Vector3dVector(a.vertex_normals)
-                o3d.visualization.draw_geometries([_pcd], point_show_normal=True)
-                print("test")
+                _pcd.points = o3d.utility.Vector3dVector(pcd)
+                o3d.visualization.draw_geometries([_pcd])
                 
             init_position = self.gripper.get_joint_positions()
             init_position[:, :6] = 0.
@@ -312,28 +255,22 @@ class DataCollection():
             world.step(render=True)
             
             if args_cli.norm_pcd:
-                pcd, normal = self.get_deform_point(normalize=True)
+                pcd = self.get_deform_point(normalize=True)
             else:
-                pcd, normal = self.get_deform_point(normalize=False)
-
-            dataset[collected_data] = np.hstack([pcd, normal])
-            collected_data += 1
+                pcd = self.get_deform_point(normalize=False)
+                
+            dataset = np.vstack([dataset, np.array([pcd])])
             
             if args_cli.vis_pcd:
                 points.GetPointsAttr().Set(pcd)
         
         if args_cli.norm_pcd:
             for i in range(dataset.shape[0]):
-                # np.save(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_norm_{i}.npy'), dataset[i,:,:])
-                np.savetxt(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_norm_{i}.xyzn'), dataset[i,:,:])
+                np.save(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_norm_{i}.npy'), dataset[i,:,:])
         else:
-            for i in tqdm(range(dataset.shape[0])):
-                # np.save(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{i}.npy'), dataset[i,:,:])
-                np.savetxt(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{i}.xyzn'), dataset[i,:,:])
-                
-        
+            for i in range(dataset.shape[0]):
+                np.save(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{i}.npy'), dataset[i,:,:])
         print(f"Data Collection done! num : {args_cli.data_num}, object : {args_cli.object}, gravity : {args_cli.gravity}")
-
 
 if __name__ == "__main__":
     try:

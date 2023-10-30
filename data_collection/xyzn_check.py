@@ -2,14 +2,12 @@ import numpy as np
 import open3d as o3d
 
 import sys
+import os
 sys.setrecursionlimit(10**4) # RecursionError: maximum recursion depth exceeded while calling a Python object
 
-data = np.load('./Oring.npy')
-index = np.load('./Oring_Indices.npy')
-
-(TIMELENGTH, NUMPOINTS, _) = data.shape
-
-pcd = o3d.io.read_point_cloud("./oring/0.xyzn", format='xyzn')
+current_directory = os.path.dirname(os.path.abspath(__file__))
+path = os.path.join(current_directory, 'data', 'lemon')
+pcd = o3d.io.read_point_cloud(path+"/lemon_pcds_0.xyzn", format='xyzn')
 
 point_cloud_handle = o3d.geometry.PointCloud()
 point_cloud_handle.points = o3d.utility.Vector3dVector(np.asarray(pcd.points))
@@ -29,7 +27,7 @@ time_ = time_gen()
 def key_callback(vis):
     time = next(time_)
     print(str(time))
-    pcd = o3d.io.read_point_cloud("./oring/"+str(time)+".xyzn", format='xyzn')
+    pcd = o3d.io.read_point_cloud(path + "/lemon_pcds_"+str(time)+".xyzn", format='xyzn')
     point_cloud_handle.points = o3d.utility.Vector3dVector(np.asarray(pcd.points))
     point_cloud_handle.normals = o3d.utility.Vector3dVector(np.asarray(pcd.normals))
     vis.update_geometry(point_cloud_handle)
