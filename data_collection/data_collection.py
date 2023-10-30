@@ -12,10 +12,10 @@ from omni.isaac.kit import SimulationApp
 
 parser = argparse.ArgumentParser("Welcome to Orbit: Omniverse Robotics Environments!")
 parser.add_argument("--headless", action="store_true", default=False, help="Force display off at all times.")
-parser.add_argument("--data_num", type=int, default=1000, help="Number of data to collect")
+parser.add_argument("--data_num", type=int, default=10000, help="Number of data to collect")
 parser.add_argument("--norm_pcd", action="store_true", default=False, help="Normalize pcd")
-parser.add_argument("--object", type=str, default="strawberry", help="Object types: tofu, lemon, strawberry, peach")
-parser.add_argument("--gravity", action="store_true", default=False, help="Option of gravity on/off")
+parser.add_argument("--object", type=str, default="lemon", help="Object types: tofu, lemon, strawberry, peach")
+parser.add_argument("--gravity", action="store_true", default=True, help="Option of gravity on/off")
 # parser.add_argument("--extract_indices", action="store_true", default=True, help="Save init indices of the object (Object_indices.npy)")
 parser.add_argument("--vis_pcd", action="store_true", default=False, help="Visualize pcds of objects (Object.npy)")
 
@@ -34,6 +34,7 @@ simulation_app = SimulationApp(config, experience=app_experience)
 
 if args_cli.headless:
     from omni.isaac.core.utils.extensions import enable_extension
+    enable_extension("omni.replicator.isaac")
     enable_extension("omni.kit.window.toolbar")
     enable_extension("omni.kit.viewport.rtx")
     enable_extension("omni.kit.viewport.pxr")
@@ -62,10 +63,20 @@ class DataCollection():
         self.current_directory = os.path.dirname(os.path.abspath(__file__))
 
     def init_simulation(self):
-        self._scene = PhysicsContext()
+        # use gpu_pipline=False
+        # usd gpu=True
+        # device = cpu
+        # use_flat_cache=False
+        self._scene = PhysicsContext(sim_params={"use_gpu_pipeline": False, 
+                                                 "use_gpu": True, 
+                                                 "device": "cpu", 
+                                                 "use_flatcache": False})
+        
         self._scene.set_broadphase_type("GPU")
         self._scene.enable_gpu_dynamics(flag=True)
-        self._scene.enable_ccd(flag=False)
+        # self._scene.enable_ccd(flag=True)
+        # self._scene.enable_flatcache(False)
+        
         if args_cli.gravity:
             self._scene.set_gravity(value=-9.8)
         else:
@@ -284,20 +295,20 @@ class DataCollection():
                 world.reset()    
                 i = 0
             
-            if i == 100:
-                # check using open3d
-                face_idx = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexIndices").Get())
-                face_vertex_counts = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexCounts").Get())
+            # if i == 100:
+            #     # check using open3d
+            #     face_idx = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexIndices").Get())
+            #     face_vertex_counts = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexCounts").Get())
                 
-                # convert prim mesh to a triangle mesh
-                tris = self._convert_poly_to_tri(pcd, face_idx, face_vertex_counts)
+            #     # convert prim mesh to a triangle mesh
+            #     tris = self._convert_poly_to_tri(pcd, face_idx, face_vertex_counts)
                 
-                a = tr.Trimesh(vertices=pcd, faces=tris, face_normals=normal)
-                _pcd = o3d.geometry.PointCloud()
-                _pcd.points = o3d.utility.Vector3dVector(a.vertices)
-                _pcd.normals = o3d.utility.Vector3dVector(a.vertex_normals)
-                o3d.visualization.draw_geometries([_pcd], point_show_normal=True)
-                print("test")
+            #     a = tr.Trimesh(vertices=pcd, faces=tris, face_normals=normal)
+            #     _pcd = o3d.geometry.PointCloud()
+            #     _pcd.points = o3d.utility.Vector3dVector(a.vertices)
+            #     _pcd.normals = o3d.utility.Vector3dVector(a.vertex_normals)
+            #     o3d.visualization.draw_geometries([_pcd], point_show_normal=True)
+            #     print("test")
                 
             init_position = self.gripper.get_joint_positions()
             init_position[:, :6] = 0.
