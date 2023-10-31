@@ -12,10 +12,10 @@ from omni.isaac.kit import SimulationApp
 
 parser = argparse.ArgumentParser("Welcome to Orbit: Omniverse Robotics Environments!")
 parser.add_argument("--headless", action="store_true", default=False, help="Force display off at all times.")
-parser.add_argument("--data_num", type=int, default=120, help="Number of data to collect")
+parser.add_argument("--data_num", type=int, default=20000, help="Number of data to collect")
 parser.add_argument("--norm_pcd", action="store_true", default=False, help="Normalize pcd")
 parser.add_argument("--object", type=str, default="tofu", help="Object types: tofu, lemon, strawberry, peach")
-parser.add_argument("--gravity", action="store_true", default=True, help="Option of gravity on/off")
+parser.add_argument("--gravity", action="store_true", default=False, help="Option of gravity on/off")
 # parser.add_argument("--extract_indices", action="store_true", default=True, help="Save init indices of the object (Object_indices.npy)")
 parser.add_argument("--vis_pcd", action="store_true", default=False, help="Visualize pcds of objects (Object.npy)")
 
@@ -301,35 +301,35 @@ class DataCollection():
                 world.reset()    
                 i = 0
             
-            if i == 100:
-                # check using open3d
-                local_collision_point = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("points").Get())   
-                vertices = np.array(local_collision_point)
-                vertices_tf_row_major = np.pad(vertices, ((0, 0), (0, 1)), constant_values=1.0)
-                relative_tf_column_major = get_relative_transform(get_prim_at_path("/World/Object/mesh"), 
-                                                                get_prim_at_path("/World"))
-                relative_tf_row_major = np.transpose(relative_tf_column_major)
-                points_in_relative_coord = vertices_tf_row_major @ relative_tf_row_major
-                pcd = points_in_relative_coord[:, :-1]
+            # if i == 100:
+            #     # check using open3d
+            #     local_collision_point = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("points").Get())   
+            #     vertices = np.array(local_collision_point)
+            #     vertices_tf_row_major = np.pad(vertices, ((0, 0), (0, 1)), constant_values=1.0)
+            #     relative_tf_column_major = get_relative_transform(get_prim_at_path("/World/Object/mesh"), 
+            #                                                     get_prim_at_path("/World"))
+            #     relative_tf_row_major = np.transpose(relative_tf_column_major)
+            #     points_in_relative_coord = vertices_tf_row_major @ relative_tf_row_major
+            #     pcd = points_in_relative_coord[:, :-1]
                 
-                face_idx = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexIndices").Get())
-                face_vertex_counts = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexCounts").Get())
+            #     face_idx = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexIndices").Get())
+            #     face_vertex_counts = np.array(get_prim_at_path("/World/Object/mesh").GetAttribute("faceVertexCounts").Get())
                 
-                # convert prim mesh to a triangle mesh
-                tris = self._convert_poly_to_tri(pcd, face_idx, face_vertex_counts)
-                # get normals
-                v1 = pcd[tris[:, 0]] - pcd[tris[:, 1]]
-                v2 = pcd[tris[:, 0]] - pcd[tris[:, 2]]
-                surface_normals = np.cross(v1, v2)
-                areas = 0.5 * np.linalg.norm(np.cross(v1, v2), axis=-1)
-                surface_normals /= 2 * areas[:, None]
+            #     # convert prim mesh to a triangle mesh
+            #     tris = self._convert_poly_to_tri(pcd, face_idx, face_vertex_counts)
+            #     # get normals
+            #     v1 = pcd[tris[:, 0]] - pcd[tris[:, 1]]
+            #     v2 = pcd[tris[:, 0]] - pcd[tris[:, 2]]
+            #     surface_normals = np.cross(v1, v2)
+            #     areas = 0.5 * np.linalg.norm(np.cross(v1, v2), axis=-1)
+            #     surface_normals /= 2 * areas[:, None]
                 
-                a = tr.Trimesh(vertices=pcd, faces=tris, face_normals=surface_normals)
-                _pcd = o3d.geometry.PointCloud()
-                _pcd.points = o3d.utility.Vector3dVector(a.vertices)
-                _pcd.normals = o3d.utility.Vector3dVector(a.vertex_normals)
-                o3d.visualization.draw_geometries([_pcd], point_show_normal=True)
-                print("test")
+            #     a = tr.Trimesh(vertices=pcd, faces=tris, face_normals=surface_normals)
+            #     _pcd = o3d.geometry.PointCloud()
+            #     _pcd.points = o3d.utility.Vector3dVector(a.vertices)
+            #     _pcd.normals = o3d.utility.Vector3dVector(a.vertex_normals)
+            #     o3d.visualization.draw_geometries([_pcd], point_show_normal=True)
+            #     print("test")
                 
             init_position = self.gripper.get_joint_positions()
             init_position[:, :6] = 0.
@@ -347,9 +347,10 @@ class DataCollection():
                 pcd, normal = self.get_deform_point(normalize=True)
             else:
                 pcd, normal = self.get_deform_point(normalize=False)
+                
             if dataset.shape[1] != pcd.shape[0]:
-                collected_data  -=1
-                pass 
+                if dataset.shape[1] > pcd.shape[0]:
+                   dataset[collected_data, :pcd.shape[0], :] = np.hstack([pcd, normal])
             else:
                 dataset[collected_data] = np.hstack([pcd, normal])
             collected_data += 1
@@ -363,8 +364,10 @@ class DataCollection():
                 np.savetxt(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_norm_{i}.xyzn'), dataset[i,:,:])
         else:
             for i in tqdm(range(dataset.shape[0])):
-                # np.save(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{i}.npy'), dataset[i,:,:])
-                np.savetxt(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{i}.xyzn'), dataset[i,:,:])
+                # if os.path.exists(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{dataset.shape[0]-1}.xyzn')):
+                    # i += dataset.shape[0]
+               
+                np.savetxt(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{i+30000}.xyzn'), dataset[i,:,:])
                 
         
         print(f"Data Collection done! num : {args_cli.data_num}, object : {args_cli.object}, gravity : {args_cli.gravity}")
