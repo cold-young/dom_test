@@ -14,10 +14,11 @@ parser = argparse.ArgumentParser("Welcome to Orbit: Omniverse Robotics Environme
 parser.add_argument("--headless", action="store_true", default=False, help="Force display off at all times.")
 parser.add_argument("--data_num", type=int, default=20000, help="Number of data to collect")
 parser.add_argument("--norm_pcd", action="store_true", default=False, help="Normalize pcd")
-parser.add_argument("--object", type=str, default="tofu", help="Object types: tofu, lemon, strawberry, peach")
-parser.add_argument("--gravity", action="store_true", default=False, help="Option of gravity on/off")
+parser.add_argument("--object", type=str, default="mm_1_2", help="Object types: tofu, lemon, strawberry, peach, mm_1")
+parser.add_argument("--gravity", action="store_true", default=True, help="Option of gravity on/off")
 # parser.add_argument("--extract_indices", action="store_true", default=True, help="Save init indices of the object (Object_indices.npy)")
 parser.add_argument("--vis_pcd", action="store_true", default=False, help="Visualize pcds of objects (Object.npy)")
+parser.add_argument("--rand_ori", action="store_true", default=False, help="Randomization when creating object (orientation")
 
 args_cli = parser.parse_args()
 
@@ -103,18 +104,18 @@ class DataCollection():
                             translation=(0.0, 0.0, 3.0),
                             orientation=self.random_orientation(1, "cpu").squeeze().tolist())
                 self.deformable_body = PhysxSchema.PhysxDeformableBodyAPI(get_prim_at_path("/World/Object/mesh"))
-        else:
+        else: 
             if args_cli.gravity:
                 prim_utils.create_prim("/World/Object",
                             usd_path=os.path.join(self.current_directory, 'usd','foods', f'{args_cli.object}.usd'), 
-                            translation=(0.0, 0.0, 1.0),
-                            orientation=(0.0, 0.0, 0.0, 1.0))
+                            translation=(0.0, 0.0, 1.0))
+                            # orientation=(0.0, 0.0, 0.0, 1.0))
                 self.deformable_body = PhysxSchema.PhysxDeformableBodyAPI(get_prim_at_path("/World/Object/mesh"))
             else:
                 prim_utils.create_prim("/World/Object",
                             usd_path=os.path.join(self.current_directory, 'usd','foods', f'{args_cli.object}.usd'), 
-                            translation=(0.0, 0.0, 3.0),
-                            orientation=(0.0, 0.0, 0.0, 1.0))
+                            translation=(0.0, 0.0, 3.0),)
+                            # orientation=(0.0, 0.0, 0.0, 1.0))
                 self.deformable_body = PhysxSchema.PhysxDeformableBodyAPI(get_prim_at_path("/World/Object/mesh"))
                      
     def create_gripper(self):
@@ -124,6 +125,13 @@ class DataCollection():
                 prim_utils.create_prim("/World/Robot",
                     usd_path=os.path.join(self.current_directory, 'usd', 'robotiq.usd'), 
                     translation=(0.0, np.round(random.uniform(-0.35, 0.35), 4), np.round(random.uniform(3.25, 3.4), 4)))  
+            
+            if "mm" in args_cli.object.lower():
+                prim_utils.create_prim("/World/Robot",
+                    usd_path=os.path.join(self.current_directory, 'usd', 'robotiq.usd'), 
+                    translation=(0.0, np.round(random.uniform(-1, 1), 4), np.round(random.uniform(3.25, 3.4), 4)),
+                    orientation=self.random_mm_yaw_orientation(1, "cpu").squeeze().tolist())
+                    # translation=(0.0, -0.4, np.round(random.uniform(3.25, 3.4), 4)))  
             else: 
                 prim_utils.create_prim("/World/Robot",
                     usd_path=os.path.join(self.current_directory, 'usd', 'robotiq.usd'), 
@@ -139,6 +147,12 @@ class DataCollection():
         roll = torch.zeros(num, dtype=torch.float, device=device)
         pitch = torch.zeros(num, dtype=torch.float, device=device)
         yaw = 2 * np.pi * torch.rand(num, dtype=torch.float, device=device)
+        return self.quat_from_euler_xyz(roll, pitch, yaw)
+
+    def random_mm_yaw_orientation(self, num: int, device: str) -> torch.Tensor:
+        roll = torch.zeros(num, dtype=torch.float, device=device)
+        pitch = torch.zeros(num, dtype=torch.float, device=device)
+        yaw = 1/4 * np.pi * torch.rand(num, dtype=torch.float, device=device)
         return self.quat_from_euler_xyz(roll, pitch, yaw)
 
     def random_orientation(self, num: int, device: str) -> torch.Tensor:
@@ -294,8 +308,11 @@ class DataCollection():
             if i == 130:
                 world.scene.clear()
                 DeletePrimsCommand(paths=["/World/Object"], destructive=True).do() 
-
-                self.create_object(rand_ori=True)
+                if args_cli.rand_ori:
+                    self.create_object(rand_ori=True)
+                else: 
+                    self.create_object(rand_ori=False)
+                    
                 self.create_gripper()
                 world.scene.add(self.gripper)
                 world.reset()    
@@ -330,17 +347,27 @@ class DataCollection():
             #     _pcd.normals = o3d.utility.Vector3dVector(a.vertex_normals)
             #     o3d.visualization.draw_geometries([_pcd], point_show_normal=True)
             #     print("test")
-                
-            init_position = self.gripper.get_joint_positions()
-            init_position[:, :6] = 0.
-            init_position[:, 6] += 0.01
-            init_position[:, 7] += 0.01
-            init_position[:, 9] += 0.01
-            init_position[:, 8] -= 0.01
-            init_position[:, 10] -= 0.01
-            init_position[:, 11] -= 0.01
-            self.gripper.set_joint_position_targets(init_position)
             
+            init_position = self.gripper.get_joint_positions()
+            if i < 60:
+                init_position[:, :6] = 0.
+                init_position[:, 6] += 0.01
+                init_position[:, 7] += 0.01
+                init_position[:, 9] += 0.01
+                init_position[:, 8] -= 0.01
+                init_position[:, 10] -= 0.01
+                init_position[:, 11] -= 0.01
+            else:
+                init_position[:, :2] = 0.
+                init_position[:, 3:6] = 0.
+                init_position[:, 2] += 0.05                        
+                init_position[:, 6] += 0.01
+                init_position[:, 7] += 0.01
+                init_position[:, 9] += 0.01
+                init_position[:, 8] -= 0.01
+                init_position[:, 10] -= 0.01
+                init_position[:, 11] -= 0.01
+            self.gripper.set_joint_position_targets(init_position)
             world.step(render=True)
             
             if args_cli.norm_pcd:
@@ -350,11 +377,18 @@ class DataCollection():
                 
             if dataset.shape[1] != pcd.shape[0]:
                 if dataset.shape[1] > pcd.shape[0]:
-                   dataset[collected_data, :pcd.shape[0], :] = np.hstack([pcd, normal])
+                    print("dataset > pcd")
+                    dataset[collected_data, :pcd.shape[0], :] = np.hstack([pcd, normal])
+                    collected_data += 1
+                    
+                elif dataset.shape[1] < pcd.shape[0]:
+                    dataset[collected_data, :, :] = np.hstack([pcd, normal])[:dataset.shape[1],:]
+                    print("dataset < pcd")
+                    collected_data += 1
             else:
-                dataset[collected_data] = np.hstack([pcd, normal])
-            collected_data += 1
-            
+                dataset[collected_data, :, :] = np.hstack([pcd, normal])
+                collected_data += 1
+                
             if args_cli.vis_pcd:
                 points.GetPointsAttr().Set(pcd)
         
@@ -364,10 +398,7 @@ class DataCollection():
                 np.savetxt(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_norm_{i}.xyzn'), dataset[i,:,:])
         else:
             for i in tqdm(range(dataset.shape[0])):
-                # if os.path.exists(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{dataset.shape[0]-1}.xyzn')):
-                    # i += dataset.shape[0]
-               
-                np.savetxt(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{args_cli.object}_pcds_{i+30000}.xyzn'), dataset[i,:,:])
+                np.savetxt(os.path.join(self.current_directory, 'data', f'{args_cli.object}', f'{i+60000}.xyzn'), dataset[i,:,:])
                 
         
         print(f"Data Collection done! num : {args_cli.data_num}, object : {args_cli.object}, gravity : {args_cli.gravity}")
